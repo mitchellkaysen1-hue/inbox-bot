@@ -135,19 +135,19 @@ def sms_forwarder_loop_1():
                                     code = extract_otp(otp_msg)
                                     
                                     group_text = (f"📩 **NEW SMS RECEIVED!**\n\n"
-                                                 f"👤 **Number:** `{num}`\n"
-                                                 f"🏢 **Service:** `{raw_srv[:2]}***`\n"
-                                                 f"💬 **Message:** {otp_msg}\n"
-                                                 f"🔑 **OTP:** `{code}`")
+                                                  f"👤 **Number:** `{num}`\n"
+                                                  f"🏢 **Service:** `{raw_srv[:2]}***`\n"
+                                                  f"💬 **Message:** {otp_msg}\n"
+                                                  f"🔑 **OTP:** `{code}`")
                                     try: bot.send_message(GROUP_ID, group_text, parse_mode='Markdown')
                                     except: pass
                                     
                                     inbox_text = (f"🎯 **SMS RECEIVED IN YOUR NUMBER!**\n\n"
-                                                 f"👤 **Number:** `{num}`\n"
-                                                 f"🏢 **Service:** `{raw_srv}`\n"
-                                                 f"💬 **Message:** {otp_msg}\n"
-                                                 f"🔑 **Code:** `{code}`\n"
-                                                 f"🎁 **Commission:** `+{commission} $`")
+                                                  f"👤 **Number:** `{num}`\n"
+                                                  f"🏢 **Service:** `{raw_srv}`\n"
+                                                  f"💬 **Message:** {otp_msg}\n"
+                                                  f"🔑 **Code:** `{code}`\n"
+                                                  f"🎁 **Commission:** `+{commission} $`")
                                     
                                     try: 
                                         bot.send_message(int(target_uid), inbox_text, parse_mode='Markdown')
@@ -229,19 +229,19 @@ def sms_forwarder_loop_2():
                                     code = extract_otp(otp_msg)
                                     
                                     group_text = (f"📩 **NEW SMS RECEIVED!**\n\n"
-                                                 f"👤 **Number:** `{num}`\n"
-                                                 f"🏢 **Service:** `{raw_srv[:2]}***`\n"
-                                                 f"💬 **Message:** {otp_msg}\n"
-                                                 f"🔑 **OTP:** `{code}`")
+                                                  f"👤 **Number:** `{num}`\n"
+                                                  f"🏢 **Service:** `{raw_srv[:2]}***`\n"
+                                                  f"💬 **Message:** {otp_msg}\n"
+                                                  f"🔑 **OTP:** `{code}`")
                                     try: bot.send_message(GROUP_ID, group_text, parse_mode='Markdown')
                                     except: pass
                                     
                                     inbox_text = (f"🎯 **SMS RECEIVED IN YOUR NUMBER!**\n\n"
-                                                 f"👤 **Number:** `{num}`\n"
-                                                 f"🏢 **Service:** `{raw_srv}`\n"
-                                                 f"💬 **Message:** {otp_msg}\n"
-                                                 f"🔑 **Code:** `{code}`\n"
-                                                 f"🎁 **Commission:** `+{commission} $`")
+                                                  f"👤 **Number:** `{num}`\n"
+                                                  f"🏢 **Service:** `{raw_srv}`\n"
+                                                  f"💬 **Message:** {otp_msg}\n"
+                                                  f"🔑 **Code:** `{code}`\n"
+                                                  f"🎁 **Commission:** `+{commission} $`")
                                     
                                     try: 
                                         bot.send_message(int(target_uid), inbox_text, parse_mode='Markdown')
@@ -656,6 +656,7 @@ def admin_add_balance(message):
     except Exception as e:
         bot.reply_to(message, f"❌ AddBalance Engine Error: {e}")
 
+# --- BACKUP COMMAND ---
 @bot.message_handler(commands=['backup'])
 def admin_selective_backup(message):
     if message.from_user.id != ADMIN_ID: return
@@ -664,69 +665,21 @@ def admin_selective_backup(message):
         users_data = db.get("users", {})
         report = "📊 CUSTOMER BALANCES & DAILY HISTORY REPORT BACKUP\n\n"
         for u_id, details in users_data.items():
-            report += f"👤 User: {details.get('username', 'Unknown')} (ID: {u_id})\n💰 Balance: {details.get('balance', 0.0)} $\n"
-            report += "---------------------------------------------------------\n"
+            report += f"👤 User: {details.get('username', 'Unknown')} (ID: {u_id})\n💰 Balance: {details.get('balance', 0.0)} $\n\n"
+            
         bio = io.BytesIO(report.encode('utf-8'))
-        bio.name = "backup.txt"
-        bot.send_document(ADMIN_ID, bio, caption="📦 **Backup Complete!**")
-    except: pass
+        bio.name = "backup_report.txt"
+        bot.send_document(message.chat.id, bio, caption="📂 **Database Report Backup Generated.**")
+    except Exception as e:
+        bot.reply_to(message, f"❌ Backup Error: {e}")
 
-@bot.message_handler(commands=['allow', 'ban', 'unban'])
-def admin_status_management(message):
-    if message.from_user.id != ADMIN_ID: return
-    try:
-        cmd = message.text.split(' ')[0].replace('/', '')
-        t_id = message.text.split(' ')[1].strip()
-        db = load_db()
-        if t_id in db["users"]:
-            db["users"][t_id]["status"] = "allowed" if cmd in ['allow', 'unban'] else "banned"
-            save_db(db)
-            bot.reply_to(message, f"✅ Action Complete: {cmd}")
-    except: pass
-
-# --- WORK PERFECT /pay ---
-@bot.message_handler(commands=['pay'])
-def admin_pay_text(message):
-    if message.from_user.id != ADMIN_ID: return
-    try:
-        match = re.match(r'/pay\s+(\d+)\s+(.+)', message.text.strip())
-        if not match:
-            bot.reply_to(message, "💡 **Format:** `/pay USER_ID TxID` \nExample: `/pay 6394277892 bkash-123456`")
-            return
-        t_id = match.group(1)
-        tx_id = match.group(2)
-        user_msg = f"✅ **WITHDRAW PAID SUCCESSFUL**\n━━━━━━━━━━━━━━━━━━━━\n🔔 **Status:** PAID\n🆔 **TxID:** `{tx_id}`"
-        try: 
-            bot.send_message(int(t_id), user_msg, parse_mode='Markdown')
-            bot.reply_to(message, f"🚀 Withdraw Paid Successfully To `{t_id}`.")
-        except: pass
-    except: pass
-
-@bot.message_handler(content_types=['photo'])
-def admin_photo_payout(message):
-    if message.from_user.id != ADMIN_ID: return
-    try:
-        caption = message.caption.strip() if message.caption else None
-        if caption and caption.isdigit():
-            user_msg = "✅ **WITHDRAW PAID SUCCESSFUL**\n━━━━━━━━━━━━━━━━━━━━\n📸 **Payment Proof Screenshot:**"
-            try: bot.send_photo(int(caption), message.photo[-1].file_id, caption=user_msg, parse_mode='Markdown')
-            except: pass
-            bot.reply_to(message, f"🚀 Sent to `{caption}`.")
-    except: pass
-
-# --- INITIALIZER POLLING RUNNER ---
+# --- START THREADS & BOT POLLING ---
 if __name__ == '__main__':
-    load_db()
-    
     t1 = threading.Thread(target=sms_forwarder_loop_1, daemon=True)
     t1.start()
     
     t2 = threading.Thread(target=sms_forwarder_loop_2, daemon=True)
     t2.start()
     
-    while True:
-        try: 
-            bot.polling(none_stop=True, timeout=60, long_polling_timeout=30)
-        except Exception as e: 
-            print(f"Bot Polling Error: {e}")
-            time.sleep(10)
+    print("Bot is polling...")
+    bot.infinity_polling()
