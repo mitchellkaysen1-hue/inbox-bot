@@ -45,7 +45,9 @@ def get_user(u_id, username="Unknown"):
     uid_str = str(u_id)
     
     if int(u_id) == ADMIN_ID:
-        db["users"][uid_str] = {"status": "allowed", "balance": 9999.0, "stats": {}, "history": {}}
+        if uid_str not in db["users"]:
+            db["users"][uid_str] = {"status": "allowed", "balance": 9999.0, "stats": {}, "history": {}}
+        db["users"][uid_str]["status"] = "allowed"
         db["users"][uid_str]["username"] = username
         save_db(db)
         return db["users"][uid_str]
@@ -58,12 +60,12 @@ def get_user(u_id, username="Unknown"):
 
 def extract_otp(message):
     try:
-        otp_match = re.search(r'\b\d{4,8}\b', message)
+        otp_match = re.search(r'\b\d{4,8}\b', str(message))
         if otp_match: return otp_match.group(0)
     except: pass
     return "N/A"
 
-# --- LAMIX SMS FORWARDER ENGINE ---
+# --- LAMIX SMS FORWARDER ENGINE (FIXED) ---
 def sms_forwarder_loop():
     global processed_sms
     while True:
@@ -71,15 +73,20 @@ def sms_forwarder_loop():
             res = requests.get(API_URL, timeout=10)
             if res.status_code == 200:
                 data = res.json()
-                if data.get('status') == 'success':
-                    sms_list = data.get('data', [])
-                    
+                # Lamix Response handling: checking 'records' or fallback to 'data'
+                sms_list = data.get('records', data.get('data', []))
+                
+                if isinstance(sms_list, list):
                     if len(processed_sms) > 3000:
                         processed_sms.clear()
                         
                     for sms in reversed(sms_list):
-                        num = str(sms.get('num', '')).strip()
-                        msg_id = f"{num}_{sms.get('dt')}"
+                        # Extracting fields according to Lamix structure
+                        raw_num = str(sms.get('num', '')).strip()
+                        clean_num = re.sub(r'\D', '', raw_num) # Clean digits only
+                        
+                        sms_time = str(sms.get('time', sms.get('dt', '')))
+                        msg_id = f"{clean_num}_{sms_time}"
                         
                         if msg_id not in processed_sms:
                             processed_sms.add(msg_id)
@@ -87,18 +94,23 @@ def sms_forwarder_loop():
                             db = load_db()
                             target_uid = None
                             
-                            for s_num, mapped_uid in list(db.get("mapping", {}).items()):
-                                if s_num in num or num in s_num:
-                                    target_uid = str(mapped_uid)
-                                    break
-                                    
+                            # Smart Number Matcher (Compares last 9-10 digits to prevent prefix issues)
+                            mapping_dict = db.get("mapping", {})
+                            for mapped_num, mapped_uid in mapping_dict.items():
+                                clean_mapped = re.sub(r'\D', '', str(mapped_num))
+                                if clean_num and clean_mapped:
+                                    if clean_num.endswith(clean_mapped[-9:]) or clean_mapped.endswith(clean_num[-9:]):
+                                        target_uid = str(mapped_uid)
+                                        break
+                                        
                             if not target_uid:
                                 continue
                                 
-                            otp_msg = sms.get('message', '')
-                            raw_srv = str(sms.get('cli', 'Unknown')).strip()
-                            clean_num = re.sub(r'\D', '', num)
+                            # Extracting content and sender service
+                            otp_msg = str(sms.get('content', sms.get('message', '')))
+                            raw_srv = str(sms.get('cli', sms.get('sender', 'Unknown'))).strip()
                             
+                            # Price / Commission Calculation
                             c_code = "Unknown"
                             price_keys = sorted(list(db.get("prices", {}).keys()), key=len, reverse=True)
                             for pk in price_keys:
@@ -130,16 +142,20 @@ def sms_forwarder_loop():
                                 
                                 code = extract_otp(otp_msg)
                                 
+                                # Send message to GROUP
                                 group_text = (f"📩 **NEW SMS RECEIVED!**\n\n"
-                                              f"👤 **Number:** `{num}`\n"
+                                              f"👤 **Number:** `{raw_num}`\n"
                                               f"🏢 **Service:** `{raw_srv[:2]}***`\n"
                                               f"💬 **Message:** {otp_msg}\n"
                                               f"🔑 **OTP:** `{code}`")
-                                try: bot.send_message(GROUP_ID, group_text, parse_mode='Markdown')
-                                except: pass
+                                try: 
+                                    bot.send_message(GROUP_ID, group_text, parse_mode='Markdown')
+                                except Exception as ge:
+                                    print(f"Group Send Error: {ge}")
                                 
+                                # Send message to USER INBOX
                                 inbox_text = (f"🎯 **SMS RECEIVED IN YOUR NUMBER!**\n\n"
-                                              f"👤 **Number:** `{num}`\n"
+                                              f"👤 **Number:** `{raw_num}`\n"
                                               f"🏢 **Service:** `{raw_srv}`\n"
                                               f"💬 **Message:** {otp_msg}\n"
                                               f"🔑 **Code:** `{code}`\n"
@@ -147,8 +163,8 @@ def sms_forwarder_loop():
                                 
                                 try: 
                                     bot.send_message(int(target_uid), inbox_text, parse_mode='Markdown')
-                                except: 
-                                    pass
+                                except Exception as ie:
+                                    print(f"Inbox Send Error for {target_uid}: {ie}")
                                 
                                 save_db(db)
         except Exception as e:
@@ -260,7 +276,8 @@ def deliver_file_callback(call):
         db["stock"][country] = db["stock"][country][count:]
         
         for num in selected:
-            db["mapping"][str(num)] = u_id
+            clean_s_num = re.sub(r'\D', '', str(num))
+            db["mapping"][str(clean_s_num)] = u_id
         save_db(db)
         
         file_data = "\n".join(selected)
