@@ -11,7 +11,7 @@ import gc
 from datetime import datetime, timedelta
 
 # --- DIRECT CONFIG ---
-BOT_TOKEN = '8632560684:AAFTRnXnAinthypH2Ja7U6kj0FyR4-5kpqo' 
+BOT_TOKEN = '8632025587:AAFI_QjCBOiO1LF_O3_RnGNIzIzDCXST6pk' 
 ADMIN_ID = 6394277892
 GROUP_ID = '-1003919009698' 
 
