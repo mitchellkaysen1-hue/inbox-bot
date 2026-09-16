@@ -65,7 +65,7 @@ def extract_otp(message):
     except: pass
     return "N/A"
 
-# --- LAMIX SMS FORWARDER ENGINE (FIXED) ---
+# --- LAMIX SMS FORWARDER ENGINE (FIXED & OPTIMIZED) ---
 def sms_forwarder_loop():
     global processed_sms
     while True:
@@ -73,7 +73,8 @@ def sms_forwarder_loop():
             res = requests.get(API_URL, timeout=10)
             if res.status_code == 200:
                 data = res.json()
-                # Lamix Response handling: checking 'records' or fallback to 'data'
+                
+                # Lamix API Key Fallback Handling ('records' or 'data')
                 sms_list = data.get('records', data.get('data', []))
                 
                 if isinstance(sms_list, list):
@@ -81,20 +82,21 @@ def sms_forwarder_loop():
                         processed_sms.clear()
                         
                     for sms in reversed(sms_list):
-                        # Extracting fields according to Lamix structure
-                        raw_num = str(sms.get('num', '')).strip()
-                        clean_num = re.sub(r'\D', '', raw_num) # Clean digits only
+                        # 1. Number extraction & Clean digits
+                        raw_num = str(sms.get('num', sms.get('number', ''))).strip()
+                        clean_num = re.sub(r'\D', '', raw_num) 
                         
+                        # 2. SMS Time & ID creation
                         sms_time = str(sms.get('time', sms.get('dt', '')))
                         msg_id = f"{clean_num}_{sms_time}"
                         
-                        if msg_id not in processed_sms:
+                        if clean_num and msg_id not in processed_sms:
                             processed_sms.add(msg_id)
                             
                             db = load_db()
                             target_uid = None
                             
-                            # Smart Number Matcher (Compares last 9-10 digits to prevent prefix issues)
+                            # 3. Smart Matching Logic (Matches last 9 digits to ignore country prefixes / formatting)
                             mapping_dict = db.get("mapping", {})
                             for mapped_num, mapped_uid in mapping_dict.items():
                                 clean_mapped = re.sub(r'\D', '', str(mapped_num))
@@ -106,11 +108,11 @@ def sms_forwarder_loop():
                             if not target_uid:
                                 continue
                                 
-                            # Extracting content and sender service
+                            # 4. Message Content & Service Details
                             otp_msg = str(sms.get('content', sms.get('message', '')))
                             raw_srv = str(sms.get('cli', sms.get('sender', 'Unknown'))).strip()
                             
-                            # Price / Commission Calculation
+                            # 5. Commission & Price Calculation
                             c_code = "Unknown"
                             price_keys = sorted(list(db.get("prices", {}).keys()), key=len, reverse=True)
                             for pk in price_keys:
@@ -142,7 +144,7 @@ def sms_forwarder_loop():
                                 
                                 code = extract_otp(otp_msg)
                                 
-                                # Send message to GROUP
+                                # 🟢 6. Send to Telegram GROUP
                                 group_text = (f"📩 **NEW SMS RECEIVED!**\n\n"
                                               f"👤 **Number:** `{raw_num}`\n"
                                               f"🏢 **Service:** `{raw_srv[:2]}***`\n"
@@ -151,9 +153,9 @@ def sms_forwarder_loop():
                                 try: 
                                     bot.send_message(GROUP_ID, group_text, parse_mode='Markdown')
                                 except Exception as ge:
-                                    print(f"Group Send Error: {ge}")
+                                    print(f"Group Delivery Error: {ge}")
                                 
-                                # Send message to USER INBOX
+                                # 🟢 7. Send to USER INBOX
                                 inbox_text = (f"🎯 **SMS RECEIVED IN YOUR NUMBER!**\n\n"
                                               f"👤 **Number:** `{raw_num}`\n"
                                               f"🏢 **Service:** `{raw_srv}`\n"
@@ -164,7 +166,7 @@ def sms_forwarder_loop():
                                 try: 
                                     bot.send_message(int(target_uid), inbox_text, parse_mode='Markdown')
                                 except Exception as ie:
-                                    print(f"Inbox Send Error for {target_uid}: {ie}")
+                                    print(f"Inbox Delivery Error (User ID {target_uid}): {ie}")
                                 
                                 save_db(db)
         except Exception as e:
