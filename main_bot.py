@@ -20,7 +20,7 @@ PANEL_TOKEN_1 = 'Q1ZXQjRSQn5zVlhDZm2FaEljjnRbi5iHW4J0gX5PhUGDImhFYHiQ'
 API_URL_1 = 'http://51.77.216.195/crapi/konek/viewstats'
 
 # 🔗 PANEL 2 CONFIG (New)
-API_URL_2 = 'http://147.135.212.197/crapi/had/viewstats?token=RVRVSjRSQlp8ioJzZ3JXSHh_jl91VIKHSnZQYnyUa3hSmE-Ch4SS&records=25'
+API_URL_2 = 'https://panel.lamix.org/api/v1/messages?token=M61_HpNtW6tXNgl4k8lgaM7vNnIUUDBq3RQQOvHAnVw'
 
 bot = telebot.TeleBot(BOT_TOKEN, threaded=False)
 processed_sms = set()
