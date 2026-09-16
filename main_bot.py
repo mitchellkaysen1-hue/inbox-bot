@@ -10,19 +10,15 @@ import io
 import gc
 from datetime import datetime, timedelta
 
-# --- DIRECT CONFIG ---
-BOT_TOKEN = '8632025587:AAFI_QjCBOiO1LF_O3_RnGNIzIzDCXST6pk' 
+# --- CONFIGURATION ---
+BOT_TOKEN = '8632560684:AAFTRnXnAinthypH2Ja7U6kj0FyR4-5kpqo' 
 ADMIN_ID = 6394277892
 GROUP_ID = '-1003919009698' 
 
-# 🔗 PANEL 1 CONFIG (Old)
-PANEL_TOKEN_1 = 'Q1ZXQjRSQn5zVlhDZm2FaEljjnRbi5iHW4J0gX5PhUGDImhFYHiQ'
-API_URL_1 = 'http://51.77.216.195/crapi/konek/viewstats'
+# 🔗 API CONFIG (Lamix Panel)
+API_URL = 'https://panel.lamix.org/api/v1/messages?token=M61_HpNtW6tXNgl4k8lgaM7vNnIUUDBq3RQQOvHAnVw'
 
-# 🔗 PANEL 2 CONFIG (New)
-API_URL_2 = 'https://panel.lamix.org/api/v1/messages?token=M61_HpNtW6tXNgl4k8lgaM7vNnIUUDBq3RQQOvHAnVw'
-
-bot = telebot.TeleBot(BOT_TOKEN, threaded=False)
+bot = telebot.TeleBot(BOT_TOKEN, threaded=True)
 processed_sms = set()
 DATA_FILE = 'bot_data.json'
 
@@ -67,193 +63,99 @@ def extract_otp(message):
     except: pass
     return "N/A"
 
-# --- PANEL 1 FORWARDER ENGINE ---
-def sms_forwarder_loop_1():
+# --- LAMIX SMS FORWARDER ENGINE ---
+def sms_forwarder_loop():
     global processed_sms
     while True:
         try:
-            with requests.get(f"{API_URL_1}?token={PANEL_TOKEN_1}", timeout=15) as res:
-                if res.status_code == 200:
-                    data = res.json()
-                    if data.get('status') == 'success':
-                        sms_list = data.get('data', [])
+            res = requests.get(API_URL, timeout=10)
+            if res.status_code == 200:
+                data = res.json()
+                if data.get('status') == 'success':
+                    sms_list = data.get('data', [])
+                    
+                    if len(processed_sms) > 3000:
+                        processed_sms.clear()
                         
-                        if len(processed_sms) > 3000:
-                            processed_sms.clear()
+                    for sms in reversed(sms_list):
+                        num = str(sms.get('num', '')).strip()
+                        msg_id = f"{num}_{sms.get('dt')}"
+                        
+                        if msg_id not in processed_sms:
+                            processed_sms.add(msg_id)
                             
-                        for sms in reversed(sms_list):
-                            num = str(sms.get('num', '')).strip()
-                            msg_id = f"p1_{num}_{sms.get('dt')}"
+                            db = load_db()
+                            target_uid = None
                             
-                            if msg_id not in processed_sms:
-                                processed_sms.add(msg_id)
+                            for s_num, mapped_uid in list(db.get("mapping", {}).items()):
+                                if s_num in num or num in s_num:
+                                    target_uid = str(mapped_uid)
+                                    break
+                                    
+                            if not target_uid:
+                                continue
                                 
-                                db = load_db()
-                                target_uid = None
-                                
-                                for s_num, mapped_uid in list(db.get("mapping", {}).items()):
-                                    if s_num in num or num in s_num:
-                                        target_uid = str(mapped_uid)
-                                        break
-                                        
-                                if not target_uid:
+                            otp_msg = sms.get('message', '')
+                            raw_srv = str(sms.get('cli', 'Unknown')).strip()
+                            clean_num = re.sub(r'\D', '', num)
+                            
+                            c_code = "Unknown"
+                            price_keys = sorted(list(db.get("prices", {}).keys()), key=len, reverse=True)
+                            for pk in price_keys:
+                                if clean_num.startswith(pk):
+                                    c_code = pk
+                                    break
+                                    
+                            commission = float(db.get("prices", {}).get(c_code, 0.0))
+                            
+                            if target_uid in db["users"]:
+                                if db["users"][target_uid].get("status") != 'allowed':
                                     continue
                                     
-                                otp_msg = sms.get('message', '')
-                                raw_srv = str(sms.get('cli', 'Unknown')).strip()
-                                clean_num = re.sub(r'\D', '', num)
+                                today = datetime.now().strftime('%Y-%m-%d')
+                                db["users"][target_uid]["balance"] = round(float(db["users"][target_uid].get("balance", 0.0)) + commission, 4)
                                 
-                                c_code = "Unknown"
-                                price_keys = sorted(list(db.get("prices", {}).keys()), key=len, reverse=True)
-                                for pk in price_keys:
-                                    if clean_num.startswith(pk):
-                                        c_code = pk
-                                        break
-                                        
-                                commission = float(db.get("prices", {}).get(c_code, 0.0))
+                                if "stats" not in db["users"][target_uid]: db["users"][target_uid]["stats"] = {}
+                                db["users"][target_uid]["stats"][c_code] = db["users"][target_uid]["stats"].get(c_code, 0) + 1
                                 
-                                if target_uid in db["users"]:
-                                    if db["users"][target_uid].get("status") != 'allowed':
-                                        continue
-                                        
-                                    today = datetime.now().strftime('%Y-%m-%d')
-                                    db["users"][target_uid]["balance"] = round(float(db["users"][target_uid].get("balance", 0.0)) + commission, 4)
+                                if "history" not in db["users"][target_uid] or isinstance(db["users"][target_uid]["history"], list):
+                                    db["users"][target_uid]["history"] = {}
                                     
-                                    if "stats" not in db["users"][target_uid]: db["users"][target_uid]["stats"] = {}
-                                    db["users"][target_uid]["stats"][c_code] = db["users"][target_uid]["stats"].get(c_code, 0) + 1
+                                if today not in db["users"][target_uid]["history"]:
+                                    db["users"][target_uid]["history"][today] = {"count": 0, "earn": 0.0}
                                     
-                                    if "history" not in db["users"][target_uid] or isinstance(db["users"][target_uid]["history"], list):
-                                        db["users"][target_uid]["history"] = {}
-                                        
-                                    if today not in db["users"][target_uid]["history"]:
-                                        db["users"][target_uid]["history"][today] = {"count": 0, "earn": 0.0}
-                                        
-                                    current_earn = float(db["users"][target_uid]["history"][today].get("earn", 0.0))
-                                    db["users"][target_uid]["history"][today]["count"] += 1
-                                    db["users"][target_uid]["history"][today]["earn"] = round(current_earn + commission, 4)
-                                    
-                                    code = extract_otp(otp_msg)
-                                    
-                                    group_text = (f"📩 **NEW SMS RECEIVED!**\n\n"
-                                                  f"👤 **Number:** `{num}`\n"
-                                                  f"🏢 **Service:** `{raw_srv[:2]}***`\n"
-                                                  f"💬 **Message:** {otp_msg}\n"
-                                                  f"🔑 **OTP:** `{code}`")
-                                    try: bot.send_message(GROUP_ID, group_text, parse_mode='Markdown')
-                                    except: pass
-                                    
-                                    inbox_text = (f"🎯 **SMS RECEIVED IN YOUR NUMBER!**\n\n"
-                                                  f"👤 **Number:** `{num}`\n"
-                                                  f"🏢 **Service:** `{raw_srv}`\n"
-                                                  f"💬 **Message:** {otp_msg}\n"
-                                                  f"🔑 **Code:** `{code}`\n"
-                                                  f"🎁 **Commission:** `+{commission} $`")
-                                    
-                                    try: 
-                                        bot.send_message(int(target_uid), inbox_text, parse_mode='Markdown')
-                                    except: 
-                                        pass
-                                    
-                                    save_db(db)
-            gc.collect()
-            time.sleep(10) 
+                                current_earn = float(db["users"][target_uid]["history"][today].get("earn", 0.0))
+                                db["users"][target_uid]["history"][today]["count"] += 1
+                                db["users"][target_uid]["history"][today]["earn"] = round(current_earn + commission, 4)
+                                
+                                code = extract_otp(otp_msg)
+                                
+                                group_text = (f"📩 **NEW SMS RECEIVED!**\n\n"
+                                              f"👤 **Number:** `{num}`\n"
+                                              f"🏢 **Service:** `{raw_srv[:2]}***`\n"
+                                              f"💬 **Message:** {otp_msg}\n"
+                                              f"🔑 **OTP:** `{code}`")
+                                try: bot.send_message(GROUP_ID, group_text, parse_mode='Markdown')
+                                except: pass
+                                
+                                inbox_text = (f"🎯 **SMS RECEIVED IN YOUR NUMBER!**\n\n"
+                                              f"👤 **Number:** `{num}`\n"
+                                              f"🏢 **Service:** `{raw_srv}`\n"
+                                              f"💬 **Message:** {otp_msg}\n"
+                                              f"🔑 **Code:** `{code}`\n"
+                                              f"🎁 **Commission:** `+{commission} $`")
+                                
+                                try: 
+                                    bot.send_message(int(target_uid), inbox_text, parse_mode='Markdown')
+                                except: 
+                                    pass
+                                
+                                save_db(db)
         except Exception as e:
-            print(f"Panel 1 Loop Error: {e}")
-            time.sleep(10) 
-
-# --- PANEL 2 FORWARDER ENGINE (New API) ---
-def sms_forwarder_loop_2():
-    global processed_sms
-    while True:
-        try:
-            with requests.get(API_URL_2, timeout=15) as res:
-                if res.status_code == 200:
-                    data = res.json()
-                    if data.get('status') == 'success':
-                        sms_list = data.get('data', [])
-                        
-                        if len(processed_sms) > 3000:
-                            processed_sms.clear()
-                            
-                        for sms in reversed(sms_list):
-                            num = str(sms.get('num', '')).strip()
-                            msg_id = f"p2_{num}_{sms.get('dt')}"
-                            
-                            if msg_id not in processed_sms:
-                                processed_sms.add(msg_id)
-                                
-                                db = load_db()
-                                target_uid = None
-                                
-                                for s_num, mapped_uid in list(db.get("mapping", {}).items()):
-                                    if s_num in num or num in s_num:
-                                        target_uid = str(mapped_uid)
-                                        break
-                                        
-                                if not target_uid:
-                                    continue
-                                    
-                                otp_msg = sms.get('message', '')
-                                raw_srv = str(sms.get('cli', 'Unknown')).strip()
-                                clean_num = re.sub(r'\D', '', num)
-                                
-                                c_code = "Unknown"
-                                price_keys = sorted(list(db.get("prices", {}).keys()), key=len, reverse=True)
-                                for pk in price_keys:
-                                    if clean_num.startswith(pk):
-                                        c_code = pk
-                                        break
-                                        
-                                commission = float(db.get("prices", {}).get(c_code, 0.0))
-                                
-                                if target_uid in db["users"]:
-                                    if db["users"][target_uid].get("status") != 'allowed':
-                                        continue
-                                        
-                                    today = datetime.now().strftime('%Y-%m-%d')
-                                    db["users"][target_uid]["balance"] = round(float(db["users"][target_uid].get("balance", 0.0)) + commission, 4)
-                                    
-                                    if "stats" not in db["users"][target_uid]: db["users"][target_uid]["stats"] = {}
-                                    db["users"][target_uid]["stats"][c_code] = db["users"][target_uid]["stats"].get(c_code, 0) + 1
-                                    
-                                    if "history" not in db["users"][target_uid] or isinstance(db["users"][target_uid]["history"], list):
-                                        db["users"][target_uid]["history"] = {}
-                                        
-                                    if today not in db["users"][target_uid]["history"]:
-                                        db["users"][target_uid]["history"][today] = {"count": 0, "earn": 0.0}
-                                        
-                                    current_earn = float(db["users"][target_uid]["history"][today].get("earn", 0.0))
-                                    db["users"][target_uid]["history"][today]["count"] += 1
-                                    db["users"][target_uid]["history"][today]["earn"] = round(current_earn + commission, 4)
-                                    
-                                    code = extract_otp(otp_msg)
-                                    
-                                    group_text = (f"📩 **NEW SMS RECEIVED!**\n\n"
-                                                  f"👤 **Number:** `{num}`\n"
-                                                  f"🏢 **Service:** `{raw_srv[:2]}***`\n"
-                                                  f"💬 **Message:** {otp_msg}\n"
-                                                  f"🔑 **OTP:** `{code}`")
-                                    try: bot.send_message(GROUP_ID, group_text, parse_mode='Markdown')
-                                    except: pass
-                                    
-                                    inbox_text = (f"🎯 **SMS RECEIVED IN YOUR NUMBER!**\n\n"
-                                                  f"👤 **Number:** `{num}`\n"
-                                                  f"🏢 **Service:** `{raw_srv}`\n"
-                                                  f"💬 **Message:** {otp_msg}\n"
-                                                  f"🔑 **Code:** `{code}`\n"
-                                                  f"🎁 **Commission:** `+{commission} $`")
-                                    
-                                    try: 
-                                        bot.send_message(int(target_uid), inbox_text, parse_mode='Markdown')
-                                    except: 
-                                        pass
-                                    
-                                    save_db(db)
-            gc.collect()
-            time.sleep(10) 
-        except Exception as e:
-            print(f"Panel 2 Loop Error: {e}")
-            time.sleep(10) 
+            print(f"SMS Engine Error: {e}")
+        
+        gc.collect()
+        time.sleep(8)
 
 # --- KEYBOARD BUILDERS ---
 def main_menu():
@@ -284,13 +186,10 @@ def start_cmd(message):
             return
 
         welcome_msg = (f"🔥 **WELCOME TO NUMBER FILES BOT** 🔥\n\n"
-                       f"━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                       f"👑 **MY OWNER IS NAHID HASAN**\n"
-                       f"💥 **HE IS THE STEP-FATHER OF EVERY MOTHERFUCKER**\n"
-                       f"━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
                        f"💡 *Use the menu buttons below to manage your operations:*")
         bot.send_message(message.chat.id, welcome_msg, parse_mode='Markdown', reply_markup=main_menu())
-    except: pass
+    except Exception as e:
+        print(f"Start Error: {e}")
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith('btn_allow_'))
 def handle_one_click_approval(call):
@@ -675,11 +574,8 @@ def admin_selective_backup(message):
 
 # --- START THREADS & BOT POLLING ---
 if __name__ == '__main__':
-    t1 = threading.Thread(target=sms_forwarder_loop_1, daemon=True)
+    t1 = threading.Thread(target=sms_forwarder_loop, daemon=True)
     t1.start()
     
-    t2 = threading.Thread(target=sms_forwarder_loop_2, daemon=True)
-    t2.start()
-    
-    print("Bot is polling...")
-    bot.infinity_polling()
+    print("Bot starting successfully...")
+    bot.infinity_polling(timeout=20, long_polling_timeout=5)
